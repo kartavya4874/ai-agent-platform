@@ -1,3 +1,4 @@
+from fastapi import Request
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.database import get_db
@@ -84,14 +85,17 @@ async def create_checkout_session(user_id: int, plan_type: str, db: Session = De
     
     # Create Stripe checkout session
     try:
-        # Define price IDs based on plan type
+        # Define price IDs based on plan type (these should be configured in your Stripe account)
         price_ids = {
-            "basic": "price_1234",  # Replace with actual Stripe price IDs
-            "premium": "price_5678"
+            "basic": os.getenv("STRIPE_BASIC_PRICE_ID", "price_basic_placeholder"),  
+            "premium": os.getenv("STRIPE_PREMIUM_PRICE_ID", "price_premium_placeholder")
         }
         
         if plan_type not in price_ids:
             raise HTTPException(status_code=400, detail="Invalid plan type")
+        
+        success_url = os.getenv("FRONTEND_URL", "http://localhost:8501") + "/success?session_id={CHECKOUT_SESSION_ID}"
+        cancel_url = os.getenv("FRONTEND_URL", "http://localhost:8501") + "/cancel"
         
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=["card"],
@@ -102,8 +106,8 @@ async def create_checkout_session(user_id: int, plan_type: str, db: Session = De
                 },
             ],
             mode="subscription",
-            success_url="http://localhost:8501/success?session_id={CHECKOUT_SESSION_ID}",
-            cancel_url="http://localhost:8501/cancel",
+            success_url=success_url,
+            cancel_url=cancel_url,
             client_reference_id=str(user_id),
         )
         
@@ -112,4 +116,59 @@ async def create_checkout_session(user_id: int, plan_type: str, db: Session = De
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Include this route in the main.py file as well
+@router.post("/webhook")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    """Handle Stripe webhook events"""
+    # Get the webhook payload
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    
+    try:
+        # Verify the webhook signature
+        webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+        event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
+        
+        # Handle the checkout.session.completed event
+        if event["type"] == "checkout.session.completed":
+            session = event["data"]["object"]
+            
+            # Get client_reference_id (user_id)
+            client_reference_id = session.get("client_reference_id")
+            if not client_reference_id:
+                return {"status": "error", "message": "No client reference ID found"}
+            
+            user_id = int(client_reference_id)
+            
+            # Update subscription in database
+            subscription = db.query(Subscription).filter(
+                Subscription.user_id == user_id,
+                Subscription.is_active == True
+            ).first()
+            
+            if subscription:
+                # Update existing subscription
+                subscription.stripe_customer_id = session.get("customer")
+                subscription.stripe_subscription_id = session.get("subscription")
+                # Set end date to 1 year from now for paid subscriptions
+                subscription.end_date = datetime.utcnow() + timedelta(days=365)
+            else:
+                # Create new subscription
+                new_subscription = Subscription(
+                    user_id=user_id,
+                    plan_type="premium",  # You might want to get this from the session
+                    is_active=True,
+                    start_date=datetime.utcnow(),
+                    end_date=datetime.utcnow() + timedelta(days=365),
+                    stripe_customer_id=session.get("customer"),
+                    stripe_subscription_id=session.get("subscription")
+                )
+                db.add(new_subscription)
+            
+            db.commit()
+            
+            return {"status": "success"}
+        
+        return {"status": "ignored", "type": event["type"]}
+    
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

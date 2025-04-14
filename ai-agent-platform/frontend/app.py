@@ -6,8 +6,8 @@ import base64
 from PIL import Image
 from io import BytesIO
 
-# API endpoint
-API_URL = "http://localhost:8000/api"
+# API endpoint - use environment variable in production
+API_URL = os.getenv("API_URL", "http://localhost:8000/api")
 
 # Configure page
 st.set_page_config(
@@ -16,6 +16,35 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Add custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: bold;
+        color: #1E88E5;
+        margin-bottom: 1rem;
+    }
+    .tool-card {
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        background-color: #f8f9fa;
+        border: a 1px solid #e9ecef;
+        margin-bottom: 1rem;
+    }
+    .success-msg {
+        padding: 1rem;
+        background-color: #d4edda;
+        color: #155724;
+        border-radius: 0.25rem;
+        margin-bottom: 1rem;
+    }
+    .stButton>button {
+        width: 100%;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Session state initialization
 if "authenticated" not in st.session_state:
@@ -26,18 +55,31 @@ if "token" not in st.session_state:
     st.session_state.token = None
 if "user_id" not in st.session_state:
     st.session_state.user_id = None
+if "current_tool" not in st.session_state:
+    st.session_state.current_tool = "Home"
 
 # Helper functions
 def download_button(file_path, button_text, file_name):
-    with open(file_path, "rb") as file:
-        contents = file.read()
-    
-    b64 = base64.b64encode(contents).decode()
-    href = f'data:application/octet-stream;base64,{b64}'
-    return st.markdown(f'<a href="{href}" download="{file_name}">{button_text}</a>', unsafe_allow_html=True)
+    """Create a download button for a file"""
+    try:
+        with open(file_path, "rb") as file:
+            contents = file.read()
+        
+        b64 = base64.b64encode(contents).decode()
+        href = f'data:application/octet-stream;base64,{b64}'
+        return st.markdown(f'<a href="{href}" download="{file_name}" class="st-emotion-cache-1nf528h e1f1d6gn0">⬇️ {button_text}</a>', unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Error creating download button: {str(e)}")
+        return None
+
+def switch_tool(tool_name):
+    """Switch to a different tool"""
+    st.session_state.current_tool = tool_name
+    st.experimental_rerun()
 
 # Sidebar
-st.sidebar.title("AI Agent Platform")
+st.sidebar.markdown("<h1 style='text-align: center;'>🤖 AI Agent Platform</h1>", unsafe_allow_html=True)
+st.sidebar.divider()
 
 # Authentication section
 if not st.session_state.authenticated:
@@ -51,21 +93,24 @@ if not st.session_state.authenticated:
             submit = st.form_submit_button("Login")
             
             if submit:
-                try:
-                    response = requests.post(
-                        f"{API_URL}/auth/token",
-                        data={"username": username, "password": password}
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        st.session_state.token = data["access_token"]
-                        st.session_state.username = username
-                        st.session_state.authenticated = True
-                        st.experimental_rerun()
-                    else:
-                        st.error("Login failed. Please check your credentials.")
-                except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
+                if username and password:
+                    try:
+                        response = requests.post(
+                            f"{API_URL}/auth/token",
+                            data={"username": username, "password": password}
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            st.session_state.token = data["access_token"]
+                            st.session_state.username = username
+                            st.session_state.authenticated = True
+                            st.experimental_rerun()
+                        else:
+                            st.error("Login failed. Please check your credentials.")
+                    except Exception as e:
+                        st.error(f"An error occurred: {str(e)}")
+                else:
+                    st.warning("Please fill in all fields")
     
     elif auth_option == "Register":
         with st.sidebar.form("register_form"):
@@ -76,22 +121,25 @@ if not st.session_state.authenticated:
             submit = st.form_submit_button("Register")
             
             if submit:
-                try:
-                    response = requests.post(
-                        f"{API_URL}/auth/register",
-                        json={"email": email, "username": username, "password": password}
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        st.session_state.token = data["access_token"]
-                        st.session_state.username = username
-                        st.session_state.authenticated = True
-                        st.success("Registration successful!")
-                        st.experimental_rerun()
-                    else:
-                        st.error(f"Registration failed: {response.json()['detail']}")
-                except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
+                if email and username and password:
+                    try:
+                        response = requests.post(
+                            f"{API_URL}/auth/register",
+                            json={"email": email, "username": username, "password": password}
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            st.session_state.token = data["access_token"]
+                            st.session_state.username = username
+                            st.session_state.authenticated = True
+                            st.success("Registration successful!")
+                            st.experimental_rerun()
+                        else:
+                            st.error(f"Registration failed: {response.json()['detail']}")
+                    except Exception as e:
+                        st.error(f"An error occurred: {str(e)}")
+                else:
+                    st.warning("Please fill in all fields")
 else:
     st.sidebar.success(f"Logged in as {st.session_state.username}")
     if st.sidebar.button("Logout"):
@@ -102,95 +150,120 @@ else:
         st.experimental_rerun()
     
     # Tool selection
-    tool = st.sidebar.selectbox(
-        "Select Tool",
-        ["Home", "Image Generator", "Code Assistant", "Writing Tool", "Text-to-Speech", "PowerPoint Generator"]
-    )
+    st.sidebar.divider()
+    st.sidebar.header("Tools")
+    
+    for tool in ["Home", "Image Generator", "Code Assistant", "Writing Tool", "Text-to-Speech", "PowerPoint Generator"]:
+        if st.sidebar.button(tool, key=f"sidebar_{tool}"):
+            switch_tool(tool)
     
     # Subscription info
+    st.sidebar.divider()
     st.sidebar.subheader("Subscription")
-    st.sidebar.info("Free Trial")
-    if st.sidebar.button("Upgrade"):
-        st.sidebar.markdown("[Upgrade to Premium](http://localhost:8000/api/subscription/upgrade)")
+    
+    subscription_status = "Free Trial"
+    st.sidebar.info(f"Current Plan: {subscription_status}")
+    
+    if st.sidebar.button("Upgrade to Premium", type="primary"):
+        # In a complete implementation, this would redirect to a checkout page
+        st.sidebar.warning("Premium subscription coming soon!")
 
 # Main content area
 if not st.session_state.authenticated:
-    st.title("Welcome to AI Agent Platform")
-    st.write("Please login or register to access the AI tools.")
+    st.markdown("<h1 class='main-header'>Welcome to AI Agent Platform</h1>", unsafe_allow_html=True)
+    st.write("Please login or register to access our powerful AI tools.")
+    
+    st.image("https://via.placeholder.com/800x400?text=AI+Agent+Platform", caption="AI-powered tools for productivity")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.info("📷 **Image Generator**")
+        st.markdown("<div class='tool-card'>", unsafe_allow_html=True)
+        st.markdown("### 📷 Image Generator")
         st.write("Create custom images from text descriptions")
+        st.markdown("</div>", unsafe_allow_html=True)
     
     with col2:
-        st.info("💻 **Code Assistant**")
+        st.markdown("<div class='tool-card'>", unsafe_allow_html=True)
+        st.markdown("### 💻 Code Assistant")
         st.write("Get help with coding and programming tasks")
+        st.markdown("</div>", unsafe_allow_html=True)
     
     with col3:
-        st.info("✍️ **Writing Tool**")
+        st.markdown("<div class='tool-card'>", unsafe_allow_html=True)
+        st.markdown("### ✍️ Writing Tool")
         st.write("Generate and improve written content")
+        st.markdown("</div>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.info("🔊 **Text-to-Speech**")
+        st.markdown("<div class='tool-card'>", unsafe_allow_html=True)
+        st.markdown("### 🔊 Text-to-Speech")
         st.write("Convert text to natural-sounding speech")
+        st.markdown("</div>", unsafe_allow_html=True)
     
     with col2:
-        st.info("📊 **PowerPoint Generator**")
+        st.markdown("<div class='tool-card'>", unsafe_allow_html=True)
+        st.markdown("### 📊 PowerPoint Generator")
         st.write("Create presentation slides automatically")
+        st.markdown("</div>", unsafe_allow_html=True)
 else:
-    # Display selected tool
-    if tool == "Home":
-        st.title("AI Agent Platform")
-        st.write(f"Welcome back, {st.session_state.username}!")
-        
-        st.header("Your AI Toolkit")
-        st.write("Select a tool from the sidebar to get started.")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.info("📷 **Image Generator**")
-            st.write("Create custom images from text descriptions")
-            if st.button("Go to Image Generator", key="home_img"):
-                tool = "Image Generator"
-                st.experimental_rerun()
-        
-        with col2:
-            st.info("💻 **Code Assistant**")
-            st.write("Get help with coding and programming tasks")
-            if st.button("Go to Code Assistant", key="home_code"):
-                tool = "Code Assistant"
-                st.experimental_rerun()
-        
-        with col3:
-            st.info("✍️ **Writing Tool**")
-            st.write("Generate and improve written content")
-            if st.button("Go to Writing Tool", key="home_write"):
-                tool = "Writing Tool"
-                st.experimental_rerun()
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.info("🔊 **Text-to-Speech**")
-            st.write("Convert text to natural-sounding speech")
-            if st.button("Go to Text-to-Speech", key="home_tts"):
-                tool = "Text-to-Speech"
-                st.experimental_rerun()
-        
-        with col2:
-            st.info("📊 **PowerPoint Generator**")
-            st.write("Create presentation slides automatically")
-            if st.button("Go to PowerPoint Generator", key="home_ppt"):
-                tool = "PowerPoint Generator"
-                st.experimental_rerun()
+    # Display selected tool based on session state
+    current_tool = st.session_state.current_tool
     
-    elif tool == "Image Generator":
-        st.title("AI Image Generator")
+    if current_tool == "Home":
+        st.markdown("<h1 class='main-header'>AI Agent Platform</h1>", unsafe_allow_html=True)
+        st.write(f"Welcome back, {st.session_state.username}! Select a tool to get started.")
+        
+        st.subheader("Your AI Toolkit")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("<div class='tool-card'>", unsafe_allow_html=True)
+            st.markdown("### 📷 Image Generator")
+            st.write("Create custom images from text descriptions")
+            if st.button("Open Image Generator", key="home_img"):
+                switch_tool("Image Generator")
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown("<div class='tool-card'>", unsafe_allow_html=True)
+            st.markdown("### 💻 Code Assistant")
+            st.write("Get help with coding and programming tasks")
+            if st.button("Open Code Assistant", key="home_code"):
+                switch_tool("Code Assistant")
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("<div class='tool-card'>", unsafe_allow_html=True)
+            st.markdown("### ✍️ Writing Tool")
+            st.write("Generate and improve written content")
+            if st.button("Open Writing Tool", key="home_write"):
+                switch_tool("Writing Tool")
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown("<div class='tool-card'>", unsafe_allow_html=True)
+            st.markdown("### 🔊 Text-to-Speech")
+            st.write("Convert text to natural-sounding speech")
+            if st.button("Open Text-to-Speech", key="home_tts"):
+                switch_tool("Text-to-Speech")
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.markdown("<div class='tool-card'>", unsafe_allow_html=True)
+        st.markdown("### 📊 PowerPoint Generator")
+        st.write("Create presentation slides automatically")
+        if st.button("Open PowerPoint Generator", key="home_ppt"):
+            switch_tool("PowerPoint Generator")
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    elif current_tool == "Image Generator":
+        st.markdown("<h1 class='main-header'>AI Image Generator</h1>", unsafe_allow_html=True)
+        st.write("Create images from text descriptions using AI.")
         
         with st.form("image_generator_form"):
             prompt = st.text_area("Describe the image you want to generate:", height=100, 
@@ -209,9 +282,11 @@ else:
         if submit and prompt:
             with st.spinner("Generating your image..."):
                 try:
+                    headers = {"Authorization": f"Bearer {st.session_state.token}"} if st.session_state.token else {}
                     response = requests.post(
                         f"{API_URL}/tools/generate-image",
-                        params={"prompt": prompt, "style": style}
+                        params={"prompt": prompt, "style": style.lower()},
+                        headers=headers
                     )
                     
                     if response.status_code == 200:
@@ -235,8 +310,9 @@ else:
         elif submit:
             st.warning("Please enter a description for your image")
     
-    elif tool == "Code Assistant":
-        st.title("AI Code Assistant")
+    elif current_tool == "Code Assistant":
+        st.markdown("<h1 class='main-header'>AI Code Assistant</h1>", unsafe_allow_html=True)
+        st.write("Get help with coding tasks using AI.")
         
         with st.form("code_assistant_form"):
             col1, col2 = st.columns(2)
@@ -257,9 +333,11 @@ else:
         if submit and prompt:
             with st.spinner("Generating your code..."):
                 try:
+                    headers = {"Authorization": f"Bearer {st.session_state.token}"} if st.session_state.token else {}
                     response = requests.post(
                         f"{API_URL}/tools/generate-code",
-                        params={"prompt": prompt, "language": language}
+                        params={"prompt": f"{task}: {prompt}", "language": language.lower()},
+                        headers=headers
                     )
                     
                     if response.status_code == 200:
@@ -284,8 +362,9 @@ else:
         elif submit:
             st.warning("Please describe what you need")
     
-    elif tool == "Writing Tool":
-        st.title("AI Writing Tool")
+    elif current_tool == "Writing Tool":
+        st.markdown("<h1 class='main-header'>AI Writing Tool</h1>", unsafe_allow_html=True)
+        st.write("Generate high-quality written content using AI.")
         
         with st.form("writing_tool_form"):
             document_type = st.selectbox("Document Type", 
@@ -305,9 +384,11 @@ else:
                 full_prompt = f"Write a {document_type} about {topic}. {instructions}"
                 
                 try:
+                    headers = {"Authorization": f"Bearer {st.session_state.token}"} if st.session_state.token else {}
                     response = requests.post(
                         f"{API_URL}/tools/generate-document",
-                        params={"prompt": full_prompt, "format": format_type.lower()}
+                        params={"prompt": full_prompt, "format": format_type.lower()},
+                        headers=headers
                     )
                     
                     if response.status_code == 200:
@@ -329,8 +410,9 @@ else:
         elif submit:
             st.warning("Please enter a topic for your document")
     
-    elif tool == "Text-to-Speech":
-        st.title("AI Text-to-Speech")
+    elif current_tool == "Text-to-Speech":
+        st.markdown("<h1 class='main-header'>AI Text-to-Speech</h1>", unsafe_allow_html=True)
+        st.write("Convert text to natural-sounding speech using AI.")
         
         with st.form("tts_form"):
             text = st.text_area("Enter text to convert to speech:", height=150,
@@ -338,7 +420,7 @@ else:
             
             col1, col2 = st.columns(2)
             with col1:
-                voice = st.selectbox("Voice:", ["Male", "Female", "Neutral"])
+                voice = st.selectbox("Voice:", ["Male (en-US-Neural2-D)", "Female (en-US-Neural2-F)", "Neutral (en-US-Neural2-A)"])
             
             with col2:
                 language = st.selectbox("Language:", ["English", "Spanish", "French", "German", "Japanese"])
@@ -347,23 +429,35 @@ else:
         
         if submit and text:
             with st.spinner("Converting text to speech..."):
+                voice_id = voice.split(" ")[1].strip("()")
+                
                 try:
+                    headers = {"Authorization": f"Bearer {st.session_state.token}"} if st.session_state.token else {}
                     response = requests.post(
                         f"{API_URL}/tools/text-to-speech",
-                        params={"text": text}
+                        params={"text": text, "voice": voice_id},
+                        headers=headers
                     )
                     
                     if response.status_code == 200:
                         result = response.json()
                         if result["success"]:
                             st.success("Text converted to speech!")
-                            st.info(result["message"])
                             
-                            # In a real implementation, you would play the audio
-                            st.write("In a complete implementation, this would include audio playback.")
+                            # Show audio player if file exists
+                            file_path = result["file_path"]
+                            if "message" in result:
+                                st.info(result["message"])
+                                st.write("In a complete implementation, this would include audio playback.")
+                            else:
+                                try:
+                                    with open(file_path, "rb") as f:
+                                        audio_bytes = f.read()
+                                    st.audio(audio_bytes, format="audio/mp3")
+                                except Exception as e:
+                                    st.warning(f"Could not play audio: {str(e)}")
                             
                             # Add download button
-                            file_path = result["file_path"]
                             file_name = "generated_speech.mp3"
                             download_button(file_path, "Download Audio", file_name)
                         else:
@@ -376,8 +470,9 @@ else:
         elif submit:
             st.warning("Please enter text to convert to speech")
     
-    elif tool == "PowerPoint Generator":
-        st.title("AI PowerPoint Generator")
+    elif current_tool == "PowerPoint Generator":
+        st.markdown("<h1 class='main-header'>AI PowerPoint Generator</h1>", unsafe_allow_html=True)
+        st.write("Create presentation slides automatically using AI.")
         
         with st.form("ppt_form"):
             topic = st.text_input("Presentation Topic:", placeholder="E.g., Artificial Intelligence Trends 2025")
@@ -394,9 +489,11 @@ else:
                 full_prompt = f"Create a {num_slides}-slide presentation about {topic}. {instructions}"
                 
                 try:
+                    headers = {"Authorization": f"Bearer {st.session_state.token}"} if st.session_state.token else {}
                     response = requests.post(
                         f"{API_URL}/tools/generate-presentation",
-                        params={"prompt": full_prompt, "slides": num_slides}
+                        params={"prompt": full_prompt, "slides": num_slides},
+                        headers=headers
                     )
                     
                     if response.status_code == 200:
@@ -417,3 +514,7 @@ else:
                     st.error(f"An error occurred: {str(e)}")
         elif submit:
             st.warning("Please enter a topic for your presentation")
+
+# Footer
+st.divider()
+st.markdown("<div style='text-align: center; color: gray;'>© 2025 AI Agent Platform | Developed by Kartavya Baluja</div>", unsafe_allow_html=True)
