@@ -13,7 +13,21 @@ def app():
     with st.form("ppt_form"):
         topic = st.text_input("Presentation Topic:", placeholder="E.g., Artificial Intelligence Trends 2025")
         
-        num_slides = st.slider("Number of Slides:", min_value=3, max_value=15, value=5)
+        col1, col2 = st.columns(2)
+        with col1:
+            num_slides = st.slider("Number of Slides:", min_value=3, max_value=15, value=5)
+        
+        with col2:
+            template = st.selectbox("Presentation Template:", 
+                                ["Professional (Blue)", "Creative (Purple)", "Minimal (White)", "Default"])
+        
+        # Map frontend template names to backend values
+        template_map = {
+            "Professional (Blue)": "professional",
+            "Creative (Purple)": "creative",
+            "Minimal (White)": "minimal",
+            "Default": "default"
+        }
         
         instructions = st.text_area("Additional Instructions:", height=100,
                                 placeholder="E.g., Include data visualizations and focus on practical applications")
@@ -25,10 +39,14 @@ def app():
             full_prompt = f"Create a {num_slides}-slide presentation about {topic}. {instructions}"
             
             try:
-                headers = {"Authorization": f"Bearer {st.session_state.token}"} if st.session_state.token else {}
+                headers = {"Authorization": f"Bearer {st.session_state.token}"} if "token" in st.session_state else {}
                 response = requests.post(
                     f"{API_URL}/tools/generate-presentation",
-                    params={"prompt": full_prompt, "slides": num_slides},
+                    params={
+                        "prompt": full_prompt, 
+                        "slides": num_slides,
+                        "template": template_map[template]
+                    },
                     headers=headers
                 )
                 
@@ -41,6 +59,20 @@ def app():
                         file_path = result["file_path"]
                         file_name = f"{topic.replace(' ', '_')}.pptx"
                         download_button(file_path, "Download Presentation", file_name)
+                        
+                        # Show preview image based on template
+                        if template == "Professional (Blue)":
+                            st.image("https://via.placeholder.com/640x360/00416C/FFFFFF?text=Professional+Template+Preview", 
+                                     caption="Professional Template Preview")
+                        elif template == "Creative (Purple)":
+                            st.image("https://via.placeholder.com/640x360/6E2B62/FFFFFF?text=Creative+Template+Preview", 
+                                     caption="Creative Template Preview")
+                        elif template == "Minimal (White)":
+                            st.image("https://via.placeholder.com/640x360/FFFFFF/505050?text=Minimal+Template+Preview", 
+                                     caption="Minimal Template Preview")
+                        else:
+                            st.image("https://via.placeholder.com/640x360/E0E0E0/303030?text=Default+Template+Preview", 
+                                     caption="Default Template Preview")
                     else:
                         st.error("Failed to generate presentation")
                 else:
