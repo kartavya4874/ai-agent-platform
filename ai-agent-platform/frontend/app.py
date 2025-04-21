@@ -75,7 +75,7 @@ def download_button(file_path, button_text, file_name):
 def switch_tool(tool_name):
     """Switch to a different tool"""
     st.session_state.current_tool = tool_name
-    st.experimental_rerun()
+    st.rerun()
 
 # Sidebar
 st.sidebar.markdown("<h1 style='text-align: center;'>🤖 AI Agent Platform</h1>", unsafe_allow_html=True)
@@ -104,7 +104,7 @@ if not st.session_state.authenticated:
                             st.session_state.token = data["access_token"]
                             st.session_state.username = username
                             st.session_state.authenticated = True
-                            st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error("Login failed. Please check your credentials.")
                     except Exception as e:
@@ -133,7 +133,7 @@ if not st.session_state.authenticated:
                             st.session_state.username = username
                             st.session_state.authenticated = True
                             st.success("Registration successful!")
-                            st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error(f"Registration failed: {response.json()['detail']}")
                     except Exception as e:
@@ -147,14 +147,14 @@ else:
         st.session_state.username = None
         st.session_state.token = None
         st.session_state.user_id = None
-        st.experimental_rerun()
+        st.rerun()
     
     # Tool selection
     st.sidebar.divider()
     st.sidebar.header("Tools")
     
     for tool in ["Home", "Image Generator", "Code Assistant", "Writing Tool", "Text-to-Speech", "PowerPoint Generator"]:
-        if st.sidebar.button(tool, key=f"sidebar_{tool}"):
+       if st.sidebar.button(tool, key=f"sidebar_{tool}"):
             switch_tool(tool)
     
     # Subscription info
@@ -173,7 +173,6 @@ if not st.session_state.authenticated:
     st.markdown("<h1 class='main-header'>Welcome to AI Agent Platform</h1>", unsafe_allow_html=True)
     st.write("Please login or register to access our powerful AI tools.")
     
-    st.image("https://via.placeholder.com/800x400?text=AI+Agent+Platform", caption="AI-powered tools for productivity")
     
     col1, col2, col3 = st.columns(3)
     
@@ -438,7 +437,7 @@ else:
                         params={"text": text, "voice": voice_id},
                         headers=headers
                     )
-                    
+                                           
                     if response.status_code == 200:
                         result = response.json()
                         if result["success"]:
@@ -477,43 +476,75 @@ else:
         with st.form("ppt_form"):
             topic = st.text_input("Presentation Topic:", placeholder="E.g., Artificial Intelligence Trends 2025")
             
-            num_slides = st.slider("Number of Slides:", min_value=3, max_value=15, value=5)
+            col1, col2 = st.columns(2)
+            with col1:
+                num_slides = st.slider("Number of Slides:", min_value=3, max_value=15, value=5)
+            
+            with col2:
+                template = st.selectbox("Presentation Template:", 
+                                    ["Professional (Blue)", "Creative (Purple)", "Minimal (White)", "Default"])
+            
+            # Map frontend template names to backend values
+            template_map = {
+                "Professional (Blue)": "professional",
+                "Creative (Purple)": "creative",
+                "Minimal (White)": "minimal",
+                "Default": "default"
+            }
             
             instructions = st.text_area("Additional Instructions:", height=100,
                                     placeholder="E.g., Include data visualizations and focus on practical applications")
             
             submit = st.form_submit_button("Generate Presentation")
-        
-        if submit and topic:
-            with st.spinner("Generating your presentation..."):
-                full_prompt = f"Create a {num_slides}-slide presentation about {topic}. {instructions}"
-                
-                try:
-                    headers = {"Authorization": f"Bearer {st.session_state.token}"} if st.session_state.token else {}
-                    response = requests.post(
-                        f"{API_URL}/tools/generate-presentation",
-                        params={"prompt": full_prompt, "slides": num_slides},
-                        headers=headers
-                    )
+            
+            if submit and topic:
+                with st.spinner("Generating your presentation..."):
+                    full_prompt = f"Create a {num_slides}-slide presentation about {topic}. {instructions}"
                     
-                    if response.status_code == 200:
-                        result = response.json()
-                        if result["success"]:
-                            st.success("Presentation generated successfully!")
-                            
-                            # Add download button
-                            file_path = result["file_path"]
-                            file_name = f"{topic.replace(' ', '_')}.pptx"
-                            download_button(file_path, "Download Presentation", file_name)
+                    try:
+                        headers = {"Authorization": f"Bearer {st.session_state.token}"} if "token" in st.session_state else {}
+                        response = requests.post(
+                            f"{API_URL}/tools/generate-presentation",
+                            params={
+                                "prompt": full_prompt, 
+                                "slides": num_slides,
+                                "template": template_map[template]
+                            },
+                            headers=headers
+                        )
+                        
+                        if response.status_code == 200:
+                            result = response.json()
+                            if result["success"]:
+                                st.success("Presentation generated successfully!")
+                                
+                                # Add download button
+                                file_path = result["file_path"]
+                                file_name = f"{topic.replace(' ', '_')}.pptx"
+                                download_button(file_path, "Download Presentation", file_name)
+                                
+                                # Show preview image based on template
+                                if template == "Professional (Blue)":
+                                    st.image("https://via.placeholder.com/640x360/00416C/FFFFFF?text=Professional+Template+Preview", 
+                                            caption="Professional Template Preview")
+                                elif template == "Creative (Purple)":
+                                    st.image("https://via.placeholder.com/640x360/6E2B62/FFFFFF?text=Creative+Template+Preview", 
+                                            caption="Creative Template Preview")
+                                elif template == "Minimal (White)":
+                                    st.image("https://via.placeholder.com/640x360/FFFFFF/505050?text=Minimal+Template+Preview", 
+                                            caption="Minimal Template Preview")
+                                else:
+                                    st.image("https://via.placeholder.com/640x360/E0E0E0/303030?text=Default+Template+Preview", 
+                                            caption="Default Template Preview")
+                            else:
+                                st.error("Failed to generate presentation")
                         else:
-                            st.error("Failed to generate presentation")
-                    else:
-                        st.error(f"API Error: {response.status_code}")
-                
-                except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
-        elif submit:
-            st.warning("Please enter a topic for your presentation")
+                            st.error(f"API Error: {response.status_code}")
+                    
+                    except Exception as e:
+                        st.error(f"An error occurred: {str(e)}")
+            elif submit:
+                st.warning("Please enter a topic for your presentation")
 
 # Footer
 st.divider()
